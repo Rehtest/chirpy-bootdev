@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync/atomic"
 )
 
@@ -63,6 +64,7 @@ func main() {
 
 	// Add Handler for Post validation
 	mux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
+		// Decode the JSON body
 		type parameters struct {
 			Body string `json:"body"`
 		}
@@ -76,8 +78,9 @@ func main() {
 			return
 		}
 
+		// Encode the response
 		type returnSuccess struct {
-			Valid bool `json:"valid"`
+			Body string `json:"cleaned_body"`
 		}
 		type returnError struct {
 			Error string `json:"error"`
@@ -88,7 +91,8 @@ func main() {
 			respBody = returnError{Error: "Chirp is too long"}
 			w.WriteHeader(http.StatusBadRequest)
 		} else {
-			respBody = returnSuccess{Valid: true}
+			respText := cleanText(params.Body)
+			respBody = returnSuccess{Body: respText}
 			w.WriteHeader(http.StatusOK)
 		}
 
@@ -110,4 +114,17 @@ func main() {
 
 	// Start the server
 	server.ListenAndServe()
+}
+
+func cleanText(input string) string {
+	wordsToRemove := []string{"kerfuffle", "sharbert", "fornax"}
+	cleanedText := strings.Split(input, " ")
+	for i, word := range cleanedText {
+		for _, removeWord := range wordsToRemove {
+			if strings.ToLower(word) == removeWord {
+				cleanedText[i] = "****"
+			}
+		}
+	}
+	return strings.Join(cleanedText, " ")
 }
