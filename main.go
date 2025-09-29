@@ -1,16 +1,23 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
+
+	"github.com/Rehtest/chirpy-bootdev/internal/database"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	dbQueries      *database.Queries
 }
 
 func (cfg *apiConfig) middlewareMetricsInt(next http.Handler) http.Handler {
@@ -21,10 +28,23 @@ func (cfg *apiConfig) middlewareMetricsInt(next http.Handler) http.Handler {
 }
 
 func main() {
+	godotenv.Load()
+	dbURL := os.Getenv("DB_URL")
+
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatalf("Error opening database: %v", err)
+	}
+	defer db.Close()
+
+	dbQueries := database.New(db)
+
 	// Initialize the multiplexer
 	mux := http.NewServeMux()
 
-	cfg := &apiConfig{}
+	cfg := &apiConfig{
+		dbQueries: dbQueries,
+	}
 
 	// Add file server for static files
 	fileServer := http.FileServer(http.Dir("."))
