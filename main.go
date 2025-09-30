@@ -22,6 +22,14 @@ type apiConfig struct {
 	platform       string
 }
 
+type returnChirp struct {
+	ID        string `json:"id"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+	Body      string `json:"body"`
+	UserID    string `json:"user_id"`
+}
+
 func (cfg *apiConfig) middlewareMetricsInt(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cfg.fileserverHits.Add(1)
@@ -107,14 +115,6 @@ func main() {
 			return
 		}
 
-		type returnChirp struct {
-			ID        string `json:"id"`
-			CreatedAt string `json:"created_at"`
-			UpdatedAt string `json:"updated_at"`
-			Body      string `json:"body"`
-			UserID    string `json:"user_id"`
-		}
-
 		var resp []returnChirp
 		for _, chirp := range chirps {
 			resp = append(resp, returnChirp{
@@ -124,6 +124,37 @@ func main() {
 				Body:      chirp.Body,
 				UserID:    chirp.UserID.String(),
 			})
+		}
+
+		respondWithJSON(w, http.StatusOK, resp)
+	})
+
+	// Add Handler to Get specific chirp by ID
+	mux.HandleFunc("GET /api/chirps/{chirpID}", func(w http.ResponseWriter, r *http.Request) {
+		// Extract the chirp ID from the URL
+		chirpID := r.PathValue("chirpID")
+		chirpUUID, err := uuid.Parse(chirpID)
+		if err != nil {
+			log.Printf("Error parsing chirp ID: %s", err)
+			respondWithError(w, http.StatusBadRequest, "Invalid chirp ID")
+			return
+		}
+
+		// Fetch the chirp from the database
+		chirp, err := cfg.dbQueries.GetChirpByID(r.Context(), chirpUUID)
+		if err != nil {
+			log.Printf("Error getting chirp: %s", err)
+			respondWithError(w, http.StatusNotFound, "Error getting chirp")
+			return
+		}
+
+		// Respond with the chirp details
+		resp := returnChirp{
+			ID:        chirp.ID.String(),
+			CreatedAt: chirp.CreatedAt.String(),
+			UpdatedAt: chirp.UpdatedAt.String(),
+			Body:      chirp.Body,
+			UserID:    chirp.UserID.String(),
 		}
 
 		respondWithJSON(w, http.StatusOK, resp)
@@ -172,13 +203,6 @@ func main() {
 			log.Printf("Created chirp with ID: %s", chirp.ID)
 
 			// Respond with the chirp details
-			type returnChirp struct {
-				ID        string `json:"id"`
-				CreatedAt string `json:"created_at"`
-				UpdatedAt string `json:"updated_at"`
-				Body      string `json:"body"`
-				UserID    string `json:"user_id"`
-			}
 			resp := returnChirp{
 				ID:        chirp.ID.String(),
 				CreatedAt: chirp.CreatedAt.String(),
@@ -267,6 +291,7 @@ func respondWithError(w http.ResponseWriter, code int, msg string) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(code)
 	w.Write(dat)
 }
 

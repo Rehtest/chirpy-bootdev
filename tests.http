@@ -2,7 +2,7 @@
 
 # http://localhost:8080/admin/metrics
 
-POST http://localhost:8080/api/validate_chirp HTTP/1.1
+POST http://localhost:8080/api/123 HTTP/1.1
 content-type: application/json
 
 {
