@@ -98,6 +98,37 @@ func main() {
 		w.Write([]byte("OK"))
 	})
 
+	// Add Handler for Get Chirps
+	mux.HandleFunc("GET /api/chirps", func(w http.ResponseWriter, r *http.Request) {
+		chirps, err := cfg.dbQueries.GetChirpsByAscendingCreatedAt(r.Context())
+		if err != nil {
+			log.Printf("Error getting chirps: %s", err)
+			respondWithError(w, http.StatusInternalServerError, "Error getting chirps")
+			return
+		}
+
+		type returnChirp struct {
+			ID        string `json:"id"`
+			CreatedAt string `json:"created_at"`
+			UpdatedAt string `json:"updated_at"`
+			Body      string `json:"body"`
+			UserID    string `json:"user_id"`
+		}
+
+		var resp []returnChirp
+		for _, chirp := range chirps {
+			resp = append(resp, returnChirp{
+				ID:        chirp.ID.String(),
+				CreatedAt: chirp.CreatedAt.String(),
+				UpdatedAt: chirp.UpdatedAt.String(),
+				Body:      chirp.Body,
+				UserID:    chirp.UserID.String(),
+			})
+		}
+
+		respondWithJSON(w, http.StatusOK, resp)
+	})
+
 	// Add Handler for Post validation
 	mux.HandleFunc("POST /api/chirps", func(w http.ResponseWriter, r *http.Request) {
 		// Decode the JSON body
