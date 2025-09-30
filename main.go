@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/Rehtest/chirpy-bootdev/internal/database"
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
@@ -98,10 +99,11 @@ func main() {
 	})
 
 	// Add Handler for Post validation
-	mux.HandleFunc("POST /api/validate_chirp", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /api/chirps", func(w http.ResponseWriter, r *http.Request) {
 		// Decode the JSON body
 		type parameters struct {
-			Body string `json:"body"`
+			Body   string    `json:"body"`
+			UserID uuid.UUID `json:"user_id"`
 		}
 
 		decoder := json.NewDecoder(r.Body)
@@ -126,8 +128,35 @@ func main() {
 			respondWithError(w, http.StatusBadRequest, "Chirp is too short")
 			return
 		} else {
-			respText := cleanText(params.Body)
-			respondWithJSON(w, http.StatusOK, returnSuccess{Body: respText})
+			// Insert new chirp into the database
+			chirp, err := cfg.dbQueries.CreateChirp(r.Context(), database.CreateChirpParams{
+				Body:   cleanText(params.Body),
+				UserID: params.UserID,
+			})
+			if err != nil {
+				log.Printf("Error creating chirp: %s", err)
+				respondWithError(w, http.StatusInternalServerError, "Error creating chirp")
+				return
+			}
+			log.Printf("Created chirp with ID: %s", chirp.ID)
+
+			// Respond with the chirp details
+			type returnChirp struct {
+				ID        string `json:"id"`
+				CreatedAt string `json:"created_at"`
+				UpdatedAt string `json:"updated_at"`
+				Body      string `json:"body"`
+				UserID    string `json:"user_id"`
+			}
+			resp := returnChirp{
+				ID:        chirp.ID.String(),
+				CreatedAt: chirp.CreatedAt.String(),
+				UpdatedAt: chirp.UpdatedAt.String(),
+				Body:      chirp.Body,
+				UserID:    chirp.UserID.String(),
+			}
+
+			respondWithJSON(w, http.StatusCreated, resp)
 		}
 	})
 
