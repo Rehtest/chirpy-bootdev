@@ -18,6 +18,7 @@ import (
 type apiConfig struct {
 	fileserverHits atomic.Int32
 	dbQueries      *database.Queries
+	platform       string
 }
 
 func (cfg *apiConfig) middlewareMetricsInt(next http.Handler) http.Handler {
@@ -30,6 +31,7 @@ func (cfg *apiConfig) middlewareMetricsInt(next http.Handler) http.Handler {
 func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
+	platform := os.Getenv("PLATFORM")
 
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
@@ -76,6 +78,19 @@ func main() {
 
 	// Add Handler for Reset path
 	mux.HandleFunc("POST /admin/reset", func(w http.ResponseWriter, r *http.Request) {
+		if platform != "dev" {
+			respondWithError(w, http.StatusForbidden, "Reset is only allowed in dev environment")
+			return
+		}
+
+		err := cfg.dbQueries.DeleteAllUsers(r.Context())
+		if err != nil {
+			log.Printf("Error deleting users: %s", err)
+			respondWithError(w, http.StatusInternalServerError, "Error deleting users")
+			return
+		}
+
+		// Reset the fileserver hits counter
 		cfg.fileserverHits.Store(0)
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
@@ -133,6 +148,27 @@ func main() {
 		}
 
 		// Respond with the user ID
+		type User struct {
+			ID        string `json:"id"`
+			CreatedAt string `json:"created_at"`
+			UpdatedAt string `json:"updated_at"`
+			Email     string `json:"email"`
+		}
+
+		user, err := cfg.dbQueries.CreateUser(r.Context(), params.Email)
+		if err != nil {
+			log.Printf("Error creating user: %s", err)
+			respondWithError(w, http.StatusInternalServerError, "Error creating user")
+			return
+		}
+
+		resp := User{
+			ID:        user.ID.String(),
+			CreatedAt: user.CreatedAt.String(),
+			UpdatedAt: user.UpdatedAt.String(),
+			Email:     user.Email,
+		}
+		respondWithJSON(w, http.StatusCreated, resp)
 
 	})
 
