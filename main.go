@@ -102,29 +102,38 @@ func main() {
 		type returnSuccess struct {
 			Body string `json:"cleaned_body"`
 		}
-		type returnError struct {
-			Error string `json:"error"`
-		}
 
-		var respBody any
+		// Validate the chirp length
 		if len(params.Body) > 140 {
-			respBody = returnError{Error: "Chirp is too long"}
-			w.WriteHeader(http.StatusBadRequest)
+			respondWithError(w, http.StatusBadRequest, "Chirp is too long")
+			return
+		} else if len(params.Body) == 0 {
+			respondWithError(w, http.StatusBadRequest, "Chirp is too short")
+			return
 		} else {
 			respText := cleanText(params.Body)
-			respBody = returnSuccess{Body: respText}
-			w.WriteHeader(http.StatusOK)
+			respondWithJSON(w, http.StatusOK, returnSuccess{Body: respText})
+		}
+	})
+
+	// Add Handler for User Creation
+	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
+		// Decode the JSON body
+		type parameters struct {
+			Email string `json:"email"`
 		}
 
-		dat, err := json.Marshal(respBody)
+		decoder := json.NewDecoder(r.Body)
+		params := parameters{}
+		err := decoder.Decode(&params)
 		if err != nil {
-			log.Printf("Error marshalling JSON: %s", err)
+			log.Printf("Error decoding parameters: %s", err)
 			w.WriteHeader(500)
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Write(dat)
+		// Respond with the user ID
+
 	})
 
 	server := &http.Server{
@@ -147,4 +156,32 @@ func cleanText(input string) string {
 		}
 	}
 	return strings.Join(cleanedText, " ")
+}
+
+func respondWithError(w http.ResponseWriter, code int, msg string) {
+	type returnError struct {
+		Error string `json:"error"`
+	}
+	respBody := returnError{Error: msg}
+
+	dat, err := json.Marshal(respBody)
+	if err != nil {
+		log.Printf("Error marshalling JSON: %s", err)
+		w.WriteHeader(code)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Write(dat)
+}
+
+func respondWithJSON(w http.ResponseWriter, code int, payload any) {
+	w.WriteHeader(code)
+	dat, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("Error marshalling JSON: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Write(dat)
 }
