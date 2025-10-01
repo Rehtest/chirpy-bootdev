@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/Rehtest/chirpy-bootdev/internal/auth"
 	"github.com/Rehtest/chirpy-bootdev/internal/database"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -28,6 +29,18 @@ type returnChirp struct {
 	UpdatedAt string `json:"updated_at"`
 	Body      string `json:"body"`
 	UserID    string `json:"user_id"`
+}
+
+type userLogin struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type userResponse struct {
+	ID        string `json:"id"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+	Email     string `json:"email"`
 }
 
 func (cfg *apiConfig) middlewareMetricsInt(next http.Handler) http.Handler {
@@ -55,6 +68,7 @@ func main() {
 
 	cfg := &apiConfig{
 		dbQueries: dbQueries,
+		platform:  platform,
 	}
 
 	// Add file server for static files
@@ -177,11 +191,6 @@ func main() {
 			return
 		}
 
-		// Encode the response
-		type returnSuccess struct {
-			Body string `json:"cleaned_body"`
-		}
-
 		// Validate the chirp length
 		if len(params.Body) > 140 {
 			respondWithError(w, http.StatusBadRequest, "Chirp is too long")
@@ -217,13 +226,10 @@ func main() {
 
 	// Add Handler for User Creation
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
-		// Decode the JSON body
-		type parameters struct {
-			Email string `json:"email"`
-		}
+		// Store the parameters in a userLogin struct
+		params := userLogin{}
 
 		decoder := json.NewDecoder(r.Body)
-		params := parameters{}
 		err := decoder.Decode(&params)
 		if err != nil {
 			log.Printf("Error decoding parameters: %s", err)
@@ -231,22 +237,27 @@ func main() {
 			return
 		}
 
-		// Respond with the user ID
-		type User struct {
-			ID        string `json:"id"`
-			CreatedAt string `json:"created_at"`
-			UpdatedAt string `json:"updated_at"`
-			Email     string `json:"email"`
+		hashedPassword, err := auth.HashPassword(params.Password)
+		if err != nil {
+			log.Printf("Error hashing password: %s", err)
+			respondWithError(w, http.StatusInternalServerError, "Error creating user")
+			return
 		}
 
-		user, err := cfg.dbQueries.CreateUser(r.Context(), params.Email)
+		// Insert new user into the database
+		createParams := database.CreateUserParams{
+			Email:          strings.ToLower(params.Email),
+			HashedPassword: sql.NullString{String: hashedPassword, Valid: true},
+		}
+
+		user, err := cfg.dbQueries.CreateUser(r.Context(), createParams)
 		if err != nil {
 			log.Printf("Error creating user: %s", err)
 			respondWithError(w, http.StatusInternalServerError, "Error creating user")
 			return
 		}
 
-		resp := User{
+		resp := userResponse{
 			ID:        user.ID.String(),
 			CreatedAt: user.CreatedAt.String(),
 			UpdatedAt: user.UpdatedAt.String(),
@@ -254,6 +265,40 @@ func main() {
 		}
 		respondWithJSON(w, http.StatusCreated, resp)
 
+	})
+
+	// Add Handler for User Login
+	mux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request) {
+		// Store the parameters in a userLogin struct
+		params := userLogin{}
+
+		decoder := json.NewDecoder(r.Body)
+		err := decoder.Decode(&params)
+		if err != nil {
+			log.Printf("Error decoding parameters: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+
+		user, err := cfg.dbQueries.GetUserByEmail(r.Context(), params.Email)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, "Incorrect email or password")
+			return
+		}
+
+		valid, err := auth.CheckPasswordHash(params.Password, user.HashedPassword.String)
+		if err != nil || !valid {
+			respondWithError(w, http.StatusUnauthorized, "Incorrect email or password")
+			return
+		}
+
+		resp := userResponse{
+			ID:        user.ID.String(),
+			CreatedAt: user.CreatedAt.String(),
+			UpdatedAt: user.UpdatedAt.String(),
+			Email:     user.Email,
+		}
+		respondWithJSON(w, http.StatusOK, resp)
 	})
 
 	server := &http.Server{
