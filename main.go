@@ -195,8 +195,7 @@ func main() {
 	mux.HandleFunc("POST /api/chirps", func(w http.ResponseWriter, r *http.Request) {
 		// Decode the JSON body
 		type parameters struct {
-			Body   string    `json:"body"`
-			UserID uuid.UUID `json:"user_id"`
+			Body string `json:"body"`
 		}
 
 		decoder := json.NewDecoder(r.Body)
@@ -205,6 +204,19 @@ func main() {
 		if err != nil {
 			log.Printf("Error decoding parameters: %s", err)
 			w.WriteHeader(500)
+			return
+		}
+
+		// Validate the Bearer token
+		token, err := auth.GetBearerToken(r)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, "Missing or invalid token")
+			return
+		}
+
+		userID, err := auth.ValidateJWT(token, cfg.secretKey)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, "Invalid token")
 			return
 		}
 
@@ -219,7 +231,7 @@ func main() {
 			// Insert new chirp into the database
 			chirp, err := cfg.dbQueries.CreateChirp(r.Context(), database.CreateChirpParams{
 				Body:   cleanText(params.Body),
-				UserID: params.UserID,
+				UserID: userID,
 			})
 			if err != nil {
 				log.Printf("Error creating chirp: %s", err)
