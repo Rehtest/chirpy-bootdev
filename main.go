@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/Rehtest/chirpy-bootdev/internal/auth"
 	"github.com/Rehtest/chirpy-bootdev/internal/database"
@@ -21,6 +22,7 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	dbQueries      *database.Queries
 	platform       string
+	secretKey      string
 }
 
 type returnChirp struct {
@@ -31,16 +33,29 @@ type returnChirp struct {
 	UserID    string `json:"user_id"`
 }
 
-type userLogin struct {
+type userCreation struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
-type userResponse struct {
+type userLogin struct {
+	userCreation
+	ExpiresIn time.Duration `json:"expires_in_seconds"`
+}
+
+type userCreationResponse struct {
 	ID        string `json:"id"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 	Email     string `json:"email"`
+}
+
+type userLoginResponse struct {
+	ID        string `json:"id"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+	Email     string `json:"email"`
+	Token     string `json:"token"`
 }
 
 func (cfg *apiConfig) middlewareMetricsInt(next http.Handler) http.Handler {
@@ -54,6 +69,7 @@ func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
 	platform := os.Getenv("PLATFORM")
+	secretKey := os.Getenv("SECRET_KEY")
 
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
@@ -69,6 +85,7 @@ func main() {
 	cfg := &apiConfig{
 		dbQueries: dbQueries,
 		platform:  platform,
+		secretKey: secretKey,
 	}
 
 	// Add file server for static files
@@ -226,8 +243,8 @@ func main() {
 
 	// Add Handler for User Creation
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
-		// Store the parameters in a userLogin struct
-		params := userLogin{}
+		// Store the parameters in a userCreation struct
+		params := userCreation{}
 
 		decoder := json.NewDecoder(r.Body)
 		err := decoder.Decode(&params)
@@ -257,7 +274,7 @@ func main() {
 			return
 		}
 
-		resp := userResponse{
+		resp := userCreationResponse{
 			ID:        user.ID.String(),
 			CreatedAt: user.CreatedAt.String(),
 			UpdatedAt: user.UpdatedAt.String(),
@@ -270,7 +287,9 @@ func main() {
 	// Add Handler for User Login
 	mux.HandleFunc("POST /api/login", func(w http.ResponseWriter, r *http.Request) {
 		// Store the parameters in a userLogin struct
-		params := userLogin{}
+		params := userLogin{
+			ExpiresIn: time.Hour, // Default to 1 hour
+		}
 
 		decoder := json.NewDecoder(r.Body)
 		err := decoder.Decode(&params)
@@ -292,12 +311,21 @@ func main() {
 			return
 		}
 
-		resp := userResponse{
+		token, err := auth.MakeJWT(user.ID, cfg.secretKey, params.ExpiresIn)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Error creating JWT")
+			return
+		}
+
+		resp := userLoginResponse{
+
 			ID:        user.ID.String(),
 			CreatedAt: user.CreatedAt.String(),
 			UpdatedAt: user.UpdatedAt.String(),
 			Email:     user.Email,
+			Token:     token,
 		}
+
 		respondWithJSON(w, http.StatusOK, resp)
 	})
 
