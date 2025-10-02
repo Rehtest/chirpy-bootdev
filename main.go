@@ -361,6 +361,66 @@ func main() {
 		respondWithJSON(w, http.StatusOK, resp)
 	})
 
+	// Add Handler for user email and password update
+	mux.HandleFunc("PUT /api/users", func(w http.ResponseWriter, r *http.Request) {
+		// Store the parameters in a userUpdateParams struct
+		type userUpdateParams struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
+		params := userUpdateParams{}
+
+		decoder := json.NewDecoder(r.Body)
+		err := decoder.Decode(&params)
+		if err != nil {
+			log.Printf("Error decoding parameters: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+
+		accessToken, err := auth.GetBearerToken(r)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, "Missing or invalid token")
+			return
+		}
+
+		userID, err := auth.ValidateJWT(accessToken, cfg.secretKey)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, "Invalid token")
+			return
+		}
+
+		hashedPassword, err := auth.HashPassword(params.Password)
+		if err != nil {
+			log.Printf("Error hashing password: %s", err)
+			respondWithError(w, http.StatusInternalServerError, "Error updating user")
+			return
+		}
+
+		// Update the user's email and password
+		updateParams := database.UpdateUserEmailAndPasswordParams{
+			ID:             userID,
+			Email:          strings.ToLower(params.Email),
+			HashedPassword: sql.NullString{String: hashedPassword, Valid: true},
+		}
+
+		updatedUser, err := cfg.dbQueries.UpdateUserEmailAndPassword(r.Context(), updateParams)
+		if err != nil {
+			log.Printf("Error updating user: %s", err)
+			respondWithError(w, http.StatusInternalServerError, "Error updating user")
+			return
+		}
+
+		resp := userCreationResponse{
+			ID:        updatedUser.ID.String(),
+			CreatedAt: updatedUser.CreatedAt.String(),
+			UpdatedAt: updatedUser.UpdatedAt.String(),
+			Email:     updatedUser.Email,
+		}
+
+		respondWithJSON(w, http.StatusOK, resp)
+	})
+
 	// Add Handler for Token Refresh
 	mux.HandleFunc("POST /api/refresh", func(w http.ResponseWriter, r *http.Request) {
 		token, err := auth.GetBearerToken(r)
