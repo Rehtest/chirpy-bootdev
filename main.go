@@ -34,8 +34,9 @@ type returnChirp struct {
 }
 
 type userCreation struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	IsChirpyRed bool   `json:"is_chirpy_red"`
 }
 
 type userLogin struct {
@@ -44,10 +45,11 @@ type userLogin struct {
 }
 
 type userCreationResponse struct {
-	ID        string `json:"id"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
-	Email     string `json:"email"`
+	ID          string `json:"id"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+	Email       string `json:"email"`
+	IsChirpyRed bool   `json:"is_chirpy_red"`
 }
 
 type userLoginResponse struct {
@@ -57,6 +59,7 @@ type userLoginResponse struct {
 	Email        string `json:"email"`
 	Token        string `json:"token"`
 	RefreshToken string `json:"refresh_token"`
+	IsChirpyRed  bool   `json:"is_chirpy_red"`
 }
 
 func (cfg *apiConfig) middlewareMetricsInt(next http.Handler) http.Handler {
@@ -254,6 +257,54 @@ func main() {
 		}
 	})
 
+	// Add Handler to Delete a chirp by ID
+	mux.HandleFunc("DELETE /api/chirps/{chirpID}", func(w http.ResponseWriter, r *http.Request) {
+		// Extract the chirp ID from the URL
+		chirpID := r.PathValue("chirpID")
+		chirpUUID, err := uuid.Parse(chirpID)
+		if err != nil {
+			log.Printf("Error parsing chirp ID: %s", err)
+			respondWithError(w, http.StatusBadRequest, "Invalid chirp ID")
+			return
+		}
+
+		// Validate the Bearer token
+		token, err := auth.GetBearerToken(r)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, "Missing or invalid token")
+			return
+		}
+
+		userID, err := auth.ValidateJWT(token, cfg.secretKey)
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, "Invalid token")
+			return
+		}
+
+		// Fetch the chirp from the database to verify ownership
+		chirp, err := cfg.dbQueries.GetChirpByID(r.Context(), chirpUUID)
+		if err != nil {
+			log.Printf("Error getting chirp: %s", err)
+			respondWithError(w, http.StatusNotFound, "Chirp not found")
+			return
+		}
+
+		if chirp.UserID != userID {
+			respondWithError(w, http.StatusForbidden, "You do not have permission to delete this chirp")
+			return
+		}
+
+		// Delete the chirp from the database
+		err = cfg.dbQueries.DeleteChirp(r.Context(), chirpUUID)
+		if err != nil {
+			log.Printf("Error deleting chirp: %s", err)
+			respondWithError(w, http.StatusNotFound, "Chirp not found")
+			return
+		}
+
+		respondWithJSON(w, http.StatusNoContent, nil)
+	})
+
 	// Add Handler for User Creation
 	mux.HandleFunc("POST /api/users", func(w http.ResponseWriter, r *http.Request) {
 		// Store the parameters in a userCreation struct
@@ -288,10 +339,11 @@ func main() {
 		}
 
 		resp := userCreationResponse{
-			ID:        user.ID.String(),
-			CreatedAt: user.CreatedAt.String(),
-			UpdatedAt: user.UpdatedAt.String(),
-			Email:     user.Email,
+			ID:          user.ID.String(),
+			CreatedAt:   user.CreatedAt.String(),
+			UpdatedAt:   user.UpdatedAt.String(),
+			Email:       user.Email,
+			IsChirpyRed: user.IsChirpyRed,
 		}
 		respondWithJSON(w, http.StatusCreated, resp)
 
@@ -356,6 +408,7 @@ func main() {
 			Email:        user.Email,
 			Token:        token,
 			RefreshToken: refreshToken,
+			IsChirpyRed:  user.IsChirpyRed,
 		}
 
 		respondWithJSON(w, http.StatusOK, resp)
@@ -412,10 +465,11 @@ func main() {
 		}
 
 		resp := userCreationResponse{
-			ID:        updatedUser.ID.String(),
-			CreatedAt: updatedUser.CreatedAt.String(),
-			UpdatedAt: updatedUser.UpdatedAt.String(),
-			Email:     updatedUser.Email,
+			ID:          updatedUser.ID.String(),
+			CreatedAt:   updatedUser.CreatedAt.String(),
+			UpdatedAt:   updatedUser.UpdatedAt.String(),
+			Email:       updatedUser.Email,
+			IsChirpyRed: updatedUser.IsChirpyRed,
 		}
 
 		respondWithJSON(w, http.StatusOK, resp)
@@ -461,6 +515,47 @@ func main() {
 
 		// Respond with success
 		respondWithJSON(w, http.StatusNoContent, map[string]string{"status": "success"})
+	})
+
+	// Add handler for webhook to upgrade user to chirpy red
+	mux.HandleFunc("POST /api/polka/webhooks", func(w http.ResponseWriter, r *http.Request) {
+		type webhookParams struct {
+			Event string `json:"event"`
+			Data  struct {
+				UserID string `json:"user_id"`
+			} `json:"data"`
+		}
+		params := webhookParams{}
+
+		decoder := json.NewDecoder(r.Body)
+		err := decoder.Decode(&params)
+		if err != nil {
+			log.Printf("Error decoding parameters: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+
+		if params.Event != "user.upgraded" {
+			respondWithJSON(w, http.StatusNoContent, nil)
+		}
+
+		// Upgrade the user to chirpy red
+		userUUID, err := uuid.Parse(params.Data.UserID)
+		if err != nil {
+			log.Printf("Error parsing user ID: %s", err)
+			respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+			return
+		}
+
+		updatedUser, err := cfg.dbQueries.UpgradeUserToChirpyRed(r.Context(), userUUID)
+		if err != nil {
+			log.Printf("Error upgrading user: %s", err)
+			respondWithError(w, http.StatusNotFound, "User not found")
+			return
+		}
+
+		log.Printf("Upgraded user %s to Chirpy Red", updatedUser.Email)
+		respondWithJSON(w, http.StatusNoContent, nil)
 	})
 
 	server := &http.Server{
