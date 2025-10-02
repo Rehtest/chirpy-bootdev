@@ -3,7 +3,6 @@ package auth
 import (
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -26,7 +25,7 @@ func TestHashPasswod(t *testing.T) {
 
 func TestJWT(t *testing.T) {
 	userID := "550e8400-e29b-41d4-a716-446655440000"
-	token, err := MakeJWT(uuid.MustParse(userID), "mysecret", time.Hour)
+	token, err := MakeJWT(uuid.MustParse(userID), "mysecret")
 	if err != nil {
 		t.Fatalf("Error creating JWT: %v", err)
 	}
@@ -45,19 +44,6 @@ func TestInvalidJWT(t *testing.T) {
 	_, err := ValidateJWT("invalid.token.here", "mysecret")
 	if err == nil {
 		t.Fatalf("Expected error validating invalid JWT, got nil")
-	}
-}
-
-func TestExpiredJWT(t *testing.T) {
-	userID := "550e8400-e29b-41d4-a716-446655440000"
-	token, err := MakeJWT(uuid.MustParse(userID), "mysecret", -time.Hour)
-	if err != nil {
-		t.Fatalf("Error creating JWT: %v", err)
-	}
-
-	_, err = ValidateJWT(token, "mysecret")
-	if err == nil {
-		t.Fatalf("Expected error validating expired JWT, got nil")
 	}
 }
 

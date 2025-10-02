@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strings"
@@ -23,15 +25,11 @@ func CheckPasswordHash(password, hash string) (bool, error) {
 	return argon2id.ComparePasswordAndHash(password, hash)
 }
 
-func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (string, error) {
-	if expiresIn > time.Hour {
-		expiresIn = time.Hour
-	}
-
+func MakeJWT(userID uuid.UUID, tokenSecret string) (string, error) {
 	claims := &jwt.RegisteredClaims{
 		Issuer:    "chirpy",
 		IssuedAt:  jwt.NewNumericDate(time.Now()),
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiresIn)),
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		Subject:   userID.String(),
 	}
 	newToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -74,4 +72,11 @@ func GetBearerToken(r *http.Request) (string, error) {
 	}
 
 	return parts[1], nil
+}
+
+func MakeRefreshToken() (string, error) {
+	// Use rand.Read to generate a secure random token
+	token := make([]byte, 32)
+	rand.Read(token)
+	return hex.EncodeToString(token), nil
 }
