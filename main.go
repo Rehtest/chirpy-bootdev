@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -146,7 +147,7 @@ func main() {
 
 	// Add Handler for Get Chirps
 	mux.HandleFunc("GET /api/chirps", func(w http.ResponseWriter, r *http.Request) {
-		// Check the parameters for user_id
+		// Check the parameters for user_id and sorting
 		userIDParam := r.URL.Query().Get("author_id")
 		var chirps []database.Chirp
 		var err error
@@ -160,20 +161,36 @@ func main() {
 				return
 			}
 
-			chirps, err = cfg.dbQueries.GetChirpsByAscendingByUser(r.Context(), userUUID)
+			chirps, err = cfg.dbQueries.GetChirpsUser(r.Context(), userUUID)
 			if err != nil {
 				log.Printf("Error getting chirps: %s", err)
 				respondWithError(w, http.StatusInternalServerError, "Error getting chirps")
 				return
 			}
 		} else {
-			chirps, err = cfg.dbQueries.GetChirpsByAscendingCreatedAt(r.Context())
+			chirps, err = cfg.dbQueries.GetChirps(r.Context())
 			if err != nil {
 				log.Printf("Error getting chirps: %s", err)
 				respondWithError(w, http.StatusInternalServerError, "Error getting chirps")
 				return
 			}
 		}
+
+		// Check if sorting parameter is present
+		sortParam := r.URL.Query().Get("sort")
+		switch sortParam {
+		case "asc":
+			sort.Slice(chirps, func(i, j int) bool {
+				return chirps[i].CreatedAt.Before(chirps[j].CreatedAt)
+			})
+		case "desc":
+			sort.Slice(chirps, func(i, j int) bool {
+				return chirps[i].CreatedAt.After(chirps[j].CreatedAt)
+			})
+		default:
+			// No sorting parameter, do nothing
+		}
+
 		var resp []returnChirp
 		for _, chirp := range chirps {
 			resp = append(resp, returnChirp{
