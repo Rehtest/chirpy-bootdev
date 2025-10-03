@@ -23,6 +23,7 @@ type apiConfig struct {
 	dbQueries      *database.Queries
 	platform       string
 	secretKey      string
+	polkaKey       string
 }
 
 type returnChirp struct {
@@ -74,6 +75,7 @@ func main() {
 	dbURL := os.Getenv("DB_URL")
 	platform := os.Getenv("PLATFORM")
 	secretKey := os.Getenv("SECRET_KEY")
+	polkaKey := os.Getenv("POLKA_KEY")
 
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
@@ -90,6 +92,7 @@ func main() {
 		dbQueries: dbQueries,
 		platform:  platform,
 		secretKey: secretKey,
+		polkaKey:  polkaKey,
 	}
 
 	// Add file server for static files
@@ -532,6 +535,13 @@ func main() {
 		if err != nil {
 			log.Printf("Error decoding parameters: %s", err)
 			w.WriteHeader(500)
+			return
+		}
+
+		// Check the Polka key
+		polkaKey, err := auth.GetAPIKey(r.Header)
+		if err != nil || polkaKey != cfg.polkaKey {
+			respondWithError(w, http.StatusUnauthorized, "Missing or invalid Polka key")
 			return
 		}
 
