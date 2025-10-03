@@ -146,13 +146,34 @@ func main() {
 
 	// Add Handler for Get Chirps
 	mux.HandleFunc("GET /api/chirps", func(w http.ResponseWriter, r *http.Request) {
-		chirps, err := cfg.dbQueries.GetChirpsByAscendingCreatedAt(r.Context())
-		if err != nil {
-			log.Printf("Error getting chirps: %s", err)
-			respondWithError(w, http.StatusInternalServerError, "Error getting chirps")
-			return
-		}
+		// Check the parameters for user_id
+		userIDParam := r.URL.Query().Get("author_id")
+		var chirps []database.Chirp
+		var err error
 
+		// If user_id is present, get chirps by that user, else get all chirps
+		if userIDParam != "" {
+			userUUID, err := uuid.Parse(userIDParam)
+			if err != nil {
+				log.Printf("Error parsing user ID: %s", err)
+				respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+				return
+			}
+
+			chirps, err = cfg.dbQueries.GetChirpsByAscendingByUser(r.Context(), userUUID)
+			if err != nil {
+				log.Printf("Error getting chirps: %s", err)
+				respondWithError(w, http.StatusInternalServerError, "Error getting chirps")
+				return
+			}
+		} else {
+			chirps, err = cfg.dbQueries.GetChirpsByAscendingCreatedAt(r.Context())
+			if err != nil {
+				log.Printf("Error getting chirps: %s", err)
+				respondWithError(w, http.StatusInternalServerError, "Error getting chirps")
+				return
+			}
+		}
 		var resp []returnChirp
 		for _, chirp := range chirps {
 			resp = append(resp, returnChirp{
